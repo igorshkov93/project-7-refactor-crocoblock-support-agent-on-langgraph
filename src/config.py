@@ -40,3 +40,11 @@ def get_llm(tier: str = "smart", temperature: float = 0.0):
         if "sonnet-5" not in model_name:
             kwargs["temperature"] = temperature
         return ChatAnthropic(**kwargs)
+    from langchain_google_genai import ChatGoogleGenerativeAI
+
+    return ChatGoogleGenerativeAI(
+        model=model_name,
+        google_api_key=os.getenv("GOOGLE_API_KEY"),
+        temperature=temperature,
+        max_output_tokens=2000,
+    )
