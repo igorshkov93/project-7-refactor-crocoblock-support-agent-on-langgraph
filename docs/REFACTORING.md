@@ -40,3 +40,34 @@ Measured on commit `<вставь хеш>`, branch `refactor/tooling`.
 | Points reading environment variables | 11 |
 | Retry-wrapped external calls | 1 (of 4 dependencies) |
 | Python modules | 28 |
+
+## Findings
+
+### Silent provider failure (found by ruff RET503)
+
+`get_llm()` had no branch for the Gemini provider: with `LLM_PROVIDER=gemini`
+— the default value in `.env.example` — the function fell through and returned
+`None`, failing later with `AttributeError` on the first `.invoke()` call.
+Static analysis surfaced it as an implicit-return warning before any test did.
+
+Fixed in `fix: restore Gemini branch in get_llm()`. Development now runs on the
+free tier; the paid provider is reserved for final metric runs.
+
+## Progress
+
+### Step 3 — configuration
+
+| Metric | Before | After |
+|---|---|---|
+| mypy errors | 33 | 13 |
+| `os.getenv` call sites | 11 | 8 |
+| Hardcoded business parameters | 4 | 0 |
+
+Introduced `src/settings.py`: a single `pydantic-settings` model validated at
+import time. API keys are `SecretStr`, so they render as `**********` in logs
+and tracebacks. A `model_validator` fails fast when the selected provider has
+no credentials, instead of raising from inside a third-party validator on the
+first model call.
+
+Rewriting `get_llm()` with explicit keyword arguments — rather than
+`**dict[str, object]` — removed 20 mypy errors from a single line.
