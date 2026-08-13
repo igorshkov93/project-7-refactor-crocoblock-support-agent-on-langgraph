@@ -1,12 +1,13 @@
 """Embed documentation chunks with Cohere and upload them to Pinecone."""
 import json
-import os
 import time
 from pathlib import Path
 
 import cohere
 from dotenv import load_dotenv
 from pinecone import Pinecone, ServerlessSpec
+
+from src.settings import settings
 
 load_dotenv()
 
@@ -23,7 +24,11 @@ def main():
     chunks = json.loads(CHUNKS.read_text(encoding="utf-8"))
     print(f"Chunks to index: {len(chunks)}")
 
-    pc = Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
+    pc = Pinecone(
+    api_key=settings.pinecone_api_key.get_secret_value()
+    if settings.pinecone_api_key
+    else None
+)
 
     existing = [i["name"] for i in pc.list_indexes()]
     if INDEX_NAME not in existing:
@@ -37,7 +42,11 @@ def main():
         time.sleep(10)
 
     index = pc.Index(INDEX_NAME)
-    co = cohere.ClientV2(api_key=os.getenv("COHERE_API_KEY"))
+    co = cohere.ClientV2(
+    api_key=settings.cohere_api_key.get_secret_value()
+    if settings.cohere_api_key
+    else None
+)
 
     for start in range(0, len(chunks), BATCH_SIZE):
         batch = chunks[start : start + BATCH_SIZE]

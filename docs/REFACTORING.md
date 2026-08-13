@@ -71,3 +71,19 @@ first model call.
 
 Rewriting `get_llm()` with explicit keyword arguments — rather than
 `**dict[str, object]` — removed 20 mypy errors from a single line.
+
+| Metric | Before | After |
+|---|---|---|
+| mypy errors | 33 | 8 |
+| ruff issues | 126 | 120 |
+| `os.getenv` call sites | 11 | 3 (dev scripts only) |
+| Hardcoded business parameters | 4 | 0 |
+| Dead modules | 1 | 0 |
+
+Also removed `src/wp_server.py`, an orphaned duplicate of
+`src/mcp_server/wp_server.py` left behind when the module moved into a package;
+nothing imported it.
+
+Two latent bugs surfaced while migrating: `get_llm()` returning `None` for the
+default provider, and an unguarded index into Cohere's `embeddings.float_`,
+which the SDK types as optional. Both were fixed rather than silenced.

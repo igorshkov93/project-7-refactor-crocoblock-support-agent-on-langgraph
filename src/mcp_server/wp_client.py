@@ -1,18 +1,19 @@
 """Thin client for the WordPress REST API."""
+
 import base64
 import json
-import os
 import urllib.error
 import urllib.parse
 import urllib.request
 
-from dotenv import load_dotenv
+from src.settings import settings
 
-load_dotenv()
+BASE_URL = settings.wp_base_url.rstrip("/")
 
-BASE_URL = os.getenv("WP_BASE_URL", "").rstrip("/")
-USER = os.getenv("WP_USER", "")
-APP_PASSWORD = os.getenv("WP_APP_PASSWORD", "")
+USER = settings.wp_user
+APP_PASSWORD = (
+    settings.wp_app_password.get_secret_value() if settings.wp_app_password else ""
+)
 
 TIMEOUT = 15
 
