@@ -1,0 +1,39 @@
+[project]
+name = "crocoblock-support-agent"
+version = "2.0.0"
+description = "Production-grade multi-agent support system for JetFormBuilder, built on LangGraph"
+requires-python = ">=3.12"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+exclude = [".venv", "src/mu-plugin"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "F",    # pyflakes
+    "W",    # pycodestyle warnings
+    "I",    # isort
+    "N",    # pep8-naming
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear
+    "C4",   # flake8-comprehensions
+    "SIM",  # flake8-simplify
+    "RET",  # flake8-return
+    "ANN",  # flake8-annotations
+    "T20",  # flake8-print
+    "ARG",  # flake8-unused-arguments
+]
+ignore = ["ANN401"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["ANN", "T20"]
+"scripts/*" = ["T20"]
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+warn_return_any = true
+warn_unused_ignores = true
+show_error_codes = true
