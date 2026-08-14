@@ -63,5 +63,24 @@ class Settings(BaseSettings):
             )
         return self
 
+# Timeouts for external dependencies, in seconds
+    llm_timeout_seconds: float = Field(default=60.0, gt=0)
+    pinecone_timeout_seconds: float = Field(default=10.0, gt=0)
+    cohere_timeout_seconds: float = Field(default=15.0, gt=0)
+    wp_timeout_seconds: float = Field(default=20.0, gt=0)
+
+    # Retry policy for transient failures
+    retry_attempts: int = Field(default=3, ge=1, le=10)
+    retry_initial_wait: float = Field(default=1.0, gt=0)
+    retry_max_wait: float = Field(default=10.0, gt=0)
+
+    @model_validator(mode="after")
+    def check_retry_waits(self) -> "Settings":
+        """A back-off ceiling below the initial wait would silently be ignored."""
+        if self.retry_max_wait < self.retry_initial_wait:
+            raise ValueError(
+                "RETRY_MAX_WAIT must be greater than or equal to RETRY_INITIAL_WAIT."
+            )
+        return self
 
 settings = Settings()
