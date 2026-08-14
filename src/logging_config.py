@@ -39,6 +39,7 @@ def setup_logging(level: int = logging.INFO) -> None:
         "google_genai",
         "google.genai",
         "grpc",
+        "asyncio",
     ):
         logging.getLogger(noisy).setLevel(logging.WARNING)
 
