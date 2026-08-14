@@ -34,7 +34,7 @@ class Settings(BaseSettings):
     wp_app_password: SecretStr | None = None
 
     # Model behaviour
-    max_output_tokens: int = Field(default=2000, gt=0)
+    max_output_tokens: int = Field(default=4000, gt=0)
     default_temperature: float = Field(default=0.0, ge=0.0, le=2.0)
 
     # Routing

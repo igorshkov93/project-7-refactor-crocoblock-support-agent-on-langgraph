@@ -87,3 +87,15 @@ nothing imported it.
 Two latent bugs surfaced while migrating: `get_llm()` returning `None` for the
 default provider, and an unguarded index into Cohere's `embeddings.float_`,
 which the SDK types as optional. Both were fixed rather than silenced.
+
+### Provider-dependent token budgets
+
+With `LLM_PROVIDER=gemini`, the code generator returned 303-character answers —
+truncated mid-sentence before any PHP appeared. `finish_reason` was `MAX_TOKENS`
+with 1171 of 1996 output tokens spent on reasoning, leaving ~825 for the visible
+answer.
+
+Gemini counts reasoning tokens against `max_output_tokens`; Anthropic does not.
+The limit was raised to 4000 in `Settings`, which is generous for Gemini and
+inert for Anthropic. The bug was invisible until the Gemini branch was restored,
+because all previous development had run on the paid provider.

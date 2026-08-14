@@ -1,9 +1,13 @@
-
 """Agent #4: writes PHP and CSS snippets for JetFormBuilder."""
+
 from pathlib import Path
+from typing import Any
 
 from src.config import get_llm
+from src.logging_config import get_logger
 from src.state import SupportState
+
+logger = get_logger(__name__)
 
 KNOWLEDGE = Path(__file__).parent / "knowledge" / "jfb_hooks.md"
 
@@ -37,7 +41,7 @@ Write for someone who may not know PHP. Explain what the code does, do not \
 just hand it over. Keep the explanation shorter than the code."""
 
 
-def extract_text(content) -> str:
+def extract_text(content: str | list[Any]) -> str:
     """Get plain text from a response that may contain thinking blocks."""
     if isinstance(content, str):
         return content
@@ -49,14 +53,33 @@ def extract_text(content) -> str:
     return "\n".join(p for p in parts if p).strip()
 
 
-def generate(request: str, env_info: dict | None = None) -> str:
-    """Write a snippet for the requested customisation."""
+def generate(request: str, env_info: dict[str, Any] | None = None) -> str:
+    """Write a snippet for the requested customisation.
+
+    Args:
+        request: What the customer wants the snippet to do.
+        env_info: Site environment from the bug investigator, when available.
+
+    Returns:
+        The snippet with an explanation, as plain text.
+
+    Raises:
+        FileNotFoundError: If the curated hook reference is missing.
+    """
+    if not KNOWLEDGE.is_file():
+        raise FileNotFoundError(f"Hook reference not found at {KNOWLEDGE}")
+
     hooks = KNOWLEDGE.read_text(encoding="utf-8")
-    messages = [
+    messages: list[dict[str, Any]] = [
         {"role": "system", "content": SYSTEM_PROMPT.format(hooks=hooks)},
     ]
 
     if env_info:
+        logger.info(
+            "Using site environment: WordPress %s, PHP %s",
+            env_info.get("wp_version"),
+            env_info.get("php_version"),
+        )
         messages.append(
             {
                 "role": "system",
@@ -67,6 +90,16 @@ def generate(request: str, env_info: dict | None = None) -> str:
                 ),
             }
         )
+    else:
+        logger.debug("No environment info available, writing version-agnostic code")
+
+    messages.append({"role": "user", "content": request})
+
+    logger.info("Generating snippet (%d chars of hook reference)", len(hooks))
+    response = get_llm("smart").invoke(messages)
+    snippet = extract_text(response.content)
+    logger.info("Snippet generated (%d chars)", len(snippet))
+    return snippet
 
     messages.append({"role": "user", "content": request})
 
@@ -74,11 +107,10 @@ def generate(request: str, env_info: dict | None = None) -> str:
     return extract_text(response.content)
 
 
-def code_generator_node(state: SupportState) -> dict:
+def code_generator_node(state: SupportState) -> dict[str, object]:
     """Graph node: write a snippet for the customer's request."""
-    request = state["messages"][-1].content
+    request = str(state["messages"][-1].content)
     snippet = generate(request, state.get("env_info"))
-
     return {
         "final_answer": snippet,
         "handled_by": "code_generator",
