@@ -3,7 +3,11 @@
 from pydantic import BaseModel, Field
 
 from src.config import get_llm
-from src.state import SupportState
+from src.logging_config import get_logger
+from src.settings import Tier  # noqa: F401  (kept for readability of tiers)
+from src.state import QueryType, SupportState
+
+logger = get_logger(__name__)
 
 SYSTEM_PROMPT = """You are the first-line triage agent for Crocoblock plugin \
 support (JetFormBuilder, JetEngine). Classify each customer message into \
@@ -35,9 +39,8 @@ sentence explaining your choice."""
 class RoutingDecision(BaseModel):
     """Structured output of the router agent."""
 
-    query_type: str = Field(
-        description="One of: how_to, bug, code, rest"
-    )
+    query_type: QueryType = Field(description="One of: how_to, bug, code, rest")
+
     confidence: float = Field(
         description="Confidence between 0.0 and 1.0", ge=0.0, le=1.0
     )
@@ -45,20 +48,42 @@ class RoutingDecision(BaseModel):
 
 
 def classify(query: str) -> RoutingDecision:
-    """Classify a single customer message."""
+    """Classify a single customer message.
+
+    Args:
+        query: Raw customer message.
+
+    Returns:
+        The routing decision with a confidence score.
+
+    Raises:
+        TypeError: If the model returns unstructured output.
+    """
     llm = get_llm("fast").with_structured_output(RoutingDecision)
-    return llm.invoke(
+    decision = llm.invoke(
         [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": query},
         ]
     )
+    if not isinstance(decision, RoutingDecision):
+        raise TypeError(f"Router returned {type(decision).__name__}, expected RoutingDecision")
+    return decision
 
 
-def router_node(state: SupportState) -> dict:
+def router_node(state: SupportState) -> dict[str, object]:
     """Graph node: classify the latest user message."""
-    query = state["messages"][-1].content
+    query = str(state["messages"][-1].content)
+    logger.info("Routing query: %.60s", query)
+
     decision = classify(query)
+
+    logger.info(
+        "Routed as '%s' (confidence %.2f): %s",
+        decision.query_type,
+        decision.confidence,
+        decision.reason,
+    )
     return {
         "query_type": decision.query_type,
         "confidence": decision.confidence,
