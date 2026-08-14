@@ -3,8 +3,8 @@
 from pydantic import BaseModel, Field
 
 from src.config import get_llm
+from src.llm_call import invoke_structured
 from src.logging_config import get_logger
-from src.settings import Tier  # noqa: F401  (kept for readability of tiers)
 from src.state import QueryType, SupportState
 
 logger = get_logger(__name__)
@@ -57,18 +57,17 @@ def classify(query: str) -> RoutingDecision:
         The routing decision with a confidence score.
 
     Raises:
-        TypeError: If the model returns unstructured output.
+        LLMResponseError: If the model's answer does not fit RoutingDecision.
+        LLMError: If the provider call failed after retries.
     """
-    llm = get_llm("fast").with_structured_output(RoutingDecision)
-    decision = llm.invoke(
+    return invoke_structured(
+        get_llm("fast"),
         [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": query},
-        ]
+        ],
+        RoutingDecision,
     )
-    if not isinstance(decision, RoutingDecision):
-        raise TypeError(f"Router returned {type(decision).__name__}, expected RoutingDecision")
-    return decision
 
 
 def router_node(state: SupportState) -> dict[str, object]:

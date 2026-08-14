@@ -119,3 +119,37 @@ Two bugs surfaced. The graph was compiled twice — once in `graph.py`, once in
 `runner.py` — leaving two independent `InMemorySaver` instances, so a run
 suspended on `interrupt()` could resume against a checkpointer that never saw
 it. And
+
+### Confidence calibration on short non-English messages
+
+The router assigns high confidence to messages carrying no diagnostic
+information at all, provided they are not in English. `"не работает"` scores
+0.90 as `bug` on Gemini; the same class of message scored 0.75 on Anthropic in
+the v1 metrics. The 0.6 escalation threshold is therefore bypassed exactly
+where it matters most.
+
+Reproduced on both providers, so it is a prompt issue rather than a
+model-specific quirk. Deferred to the LangSmith stage (steps 7-8): the fix is a
+prompt change, and a prompt change without a dataset to measure it against is a
+guess.
+
+### Console encoding on Windows
+
+PowerShell mangles Cyrillic when piping a heredoc into `python -`. Set
+`$env:PYTHONIOENCODING = "utf-8"` and a BOM-less `[Console]::OutputEncoding`
+before any manual check involving non-English input, or the model will be
+scored on corrupted text.
+
+### Retry behaviour under a real 429
+
+The first live failure was not simulated. Gemini's free tier returned
+`RESOURCE_EXHAUSTED` mid-development, and the new machinery behaved as designed:
+the provider error was translated into `LLMRateLimitError`, `with_retry` made
+three attempts with growing back-off and logged each one, and the caller
+received a domain exception instead of a provider-specific traceback.
+
+It also exposed a configuration flaw. The free-tier quota is
+`PerProjectPerModel`, and both tiers pointed at `gemini-2.5-flash` — so the
+router and the three heavier agents shared a single 20-request daily budget.
+Splitting `fast` onto `gemini-2.5-flash-lite` doubled the development budget and
+matched the architecture's intent, where a cheap model does the triage.

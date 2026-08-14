@@ -23,6 +23,7 @@ __all__ = [
     "LLMRateLimitError",
     "LLMResponseError",
     "LLMTimeoutError",
+    "MCPServerError",
     "RerankError",
     "RetrievalError",
     "RoutingError",
@@ -149,6 +150,18 @@ class WordPressResponseError(WordPressError):
     """
 
     retryable: ClassVar[bool] = False
+
+
+class MCPServerError(ExternalServiceError):
+    """The MCP server could not be started or stopped responding.
+
+    Covers the transport itself — a subprocess that fails to launch, hangs on
+    handshake, or dies mid-session. Failures *inside* a tool surface as the
+    WordPress errors above.
+    """
+
+    service: ClassVar[str] = "mcp"
+    retryable: ClassVar[bool] = True
 
 
 # --- Agent-level failures --------------------------------------------------

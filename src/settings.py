@@ -43,6 +43,8 @@ class Settings(BaseSettings):
     # Retrieval
     pinecone_index: str = "jetformbuilder-docs"
     pinecone_namespace: str = "jfb"
+    embed_model: str = "embed-v4.0"
+    rerank_model: str = "rerank-v3.5"
     retrieval_candidates: int = Field(default=20, gt=0)
     retrieval_top_n: int = Field(default=5, gt=0)
 

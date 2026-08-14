@@ -14,7 +14,6 @@ from src.settings import settings
 logger = get_logger(__name__)
 
 CHUNKS = Path("data/chunks.json")
-EMBED_MODEL = "embed-v4.0"
 DIMENSION = 1536
 BATCH_SIZE = 90
 MAX_ATTEMPTS = 4
@@ -60,7 +59,7 @@ def main() -> None:
             try:
                 response = co.embed(
                     texts=texts,
-                    model=EMBED_MODEL,
+                    model=settings.embed_model,
                     input_type="search_document",
                     embedding_types=["float"],
                 )
