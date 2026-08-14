@@ -1,19 +1,27 @@
 """Split documentation pages into chunks for retrieval."""
+
 import json
 from pathlib import Path
+from typing import Any
 
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
+from src.logging_config import get_logger, setup_logging
+
+logger = get_logger(__name__)
+
 DOCS = Path("data/docs.json")
 OUTPUT = Path("data/chunks.json")
-
 CHUNK_SIZE = 1000
 CHUNK_OVERLAP = 150
 
 
-def main():
+def main() -> None:
+    """Split every documentation page into overlapping chunks."""
+    setup_logging()
+
     docs = json.loads(DOCS.read_text(encoding="utf-8"))
-    print(f"Source pages: {len(docs)}")
+    logger.info("Source pages: %d", len(docs))
 
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=CHUNK_SIZE,
@@ -21,7 +29,7 @@ def main():
         separators=["\n\n", "\n", ". ", " ", ""],
     )
 
-    chunks = []
+    chunks: list[dict[str, Any]] = []
     for doc in docs:
         pieces = splitter.split_text(doc["text"])
         for index, piece in enumerate(pieces):
@@ -36,25 +44,23 @@ def main():
                 }
             )
 
-    OUTPUT.write_text(
-        json.dumps(chunks, indent=2, ensure_ascii=False), encoding="utf-8"
-    )
+    if not chunks:
+        raise ValueError(f"No chunks produced from {DOCS}; is the file empty?")
+
+    OUTPUT.write_text(json.dumps(chunks, indent=2, ensure_ascii=False), encoding="utf-8")
 
     sizes = [len(c["text"]) for c in chunks]
     per_page = [c["total_chunks"] for c in chunks]
+    logger.info("Chunks: %d", len(chunks))
+    logger.info("Average size: %d chars", sum(sizes) // len(sizes))
+    logger.info("Size range: %d - %d chars", min(sizes), max(sizes))
+    logger.info("Max chunks per page: %d", max(per_page))
+    logger.info("Saved to %s", OUTPUT)
 
-    print(f"Chunks:      {len(chunks)}")
-    print(f"Avg size:    {sum(sizes) // len(sizes)} chars")
-    print(f"Size range:  {min(sizes)} - {max(sizes)}")
-    print(f"Max per page: {max(per_page)}")
-    print(f"Saved:       {OUTPUT}")
-
-    print("\nSample chunk:")
     sample = chunks[len(chunks) // 2]
-    print(f"  id:    {sample['id']}")
-    print(f"  title: {sample['title']}")
-    print(f"  text:  {sample['text'][:150]}...")
-
+    logger.debug("Sample chunk id: %s", sample["id"])
+    logger.debug("Sample chunk title: %s", sample["title"])
+    logger.debug("Sample chunk text: %.150s", sample["text"])
 
 if __name__ == "__main__":
     main()
