@@ -14,15 +14,14 @@ from typing import Any
 # Allow running this file directly as an MCP server subprocess.
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-import logging
-
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
 
 from src.exceptions import SupportAgentError
+from src.logging_config import get_logger
 from src.mcp_server.wp_client import wp_get_object
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 mcp = FastMCP("wordpress-support")
 

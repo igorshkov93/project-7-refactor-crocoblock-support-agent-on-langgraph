@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import base64
 import json
-import logging
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -27,10 +26,11 @@ from src.exceptions import (
     WordPressResponseError,
     WordPressTimeoutError,
 )
+from src.logging_config import get_logger
 from src.retry import with_retry
 from src.settings import settings
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 JSONObject = dict[str, Any]
 JSONArray = list[Any]

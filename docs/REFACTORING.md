@@ -153,3 +153,20 @@ It also exposed a configuration flaw. The free-tier quota is
 router and the three heavier agents shared a single 20-request daily budget.
 Splitting `fast` onto `gemini-2.5-flash-lite` doubled the development budget and
 matched the architecture's intent, where a cheap model does the triage.
+
+### `Event loop is closed` on the second investigation round
+
+`run_diagnostics` drove the ReAct agent through `asyncio.run`, which closes its
+loop on exit. The Anthropic and MCP SDKs cache HTTP connections bound to the
+loop that created them, so the second round landed on a closed loop and failed
+as `APIConnectionError: Connection error` — an error message pointing at the
+network rather than at the real cause.
+
+The defect predates this refactor but was invisible: every per-node test and the
+v1 latency benchmark measured the investigator up to the *first* clarifying
+question, and a fresh process meant a fresh loop each time. It only surfaces on
+a resumed run, which is the agent's entire reason to exist.
+
+Fixed with `src/async_bridge.py`: one background event loop per process, started
+on first use and never torn down, with `run_sync()` submitting coroutines to it
+from synchronous code.

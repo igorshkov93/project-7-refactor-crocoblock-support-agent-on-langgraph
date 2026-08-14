@@ -12,7 +12,6 @@ coroutine functions and awaits the sleep instead of blocking.
 
 from __future__ import annotations
 
-import logging
 from collections.abc import Callable
 from typing import ParamSpec, TypeVar, cast
 
@@ -25,9 +24,10 @@ from tenacity import (
 )
 
 from src.exceptions import SupportAgentError
+from src.logging_config import get_logger
 from src.settings import settings
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 P = ParamSpec("P")
 R = TypeVar("R")
@@ -74,7 +74,7 @@ def with_retry(
             to ``RETRY_INITIAL_WAIT``.
         max_wait: Upper bound for a single back-off interval, in seconds.
             Defaults to ``RETRY_MAX_WAIT``.
-            
+
     Returns:
         A decorator preserving the signature of the wrapped function.
 

@@ -4,6 +4,8 @@ from pathlib import Path
 from typing import Any
 
 from src.config import get_llm
+from src.exceptions import ConfigurationError
+from src.llm_call import invoke_text
 from src.logging_config import get_logger
 from src.state import SupportState
 
@@ -41,16 +43,31 @@ Write for someone who may not know PHP. Explain what the code does, do not \
 just hand it over. Keep the explanation shorter than the code."""
 
 
-def extract_text(content: str | list[Any]) -> str:
-    """Get plain text from a response that may contain thinking blocks."""
-    if isinstance(content, str):
-        return content
-    parts = [
-        block.get("text", "")
-        for block in content
-        if isinstance(block, dict) and block.get("type") == "text"
-    ]
-    return "\n".join(p for p in parts if p).strip()
+def load_hook_reference() -> str:
+    """Read the curated JetFormBuilder hook reference.
+
+    The reference ships with the repository and is the only source of hooks the
+    agent may treat as verified, so a missing or empty file is a configuration
+    fault rather than a runtime hiccup — without it the agent would invent hook
+    signatures, which is the failure mode this prompt exists to prevent.
+
+    Raises:
+        ConfigurationError: If the reference is missing, unreadable or empty.
+    """
+    try:
+        hooks = KNOWLEDGE.read_text(encoding="utf-8")
+    except FileNotFoundError as error:
+        raise ConfigurationError(
+            f"Hook reference not found at {KNOWLEDGE}"
+        ) from error
+    except OSError as error:
+        raise ConfigurationError(
+            f"Hook reference at {KNOWLEDGE} could not be read: {error}"
+        ) from error
+
+    if not hooks.strip():
+        raise ConfigurationError(f"Hook reference at {KNOWLEDGE} is empty")
+    return hooks
 
 
 def generate(request: str, env_info: dict[str, Any] | None = None) -> str:
@@ -64,21 +81,23 @@ def generate(request: str, env_info: dict[str, Any] | None = None) -> str:
         The snippet with an explanation, as plain text.
 
     Raises:
-        FileNotFoundError: If the curated hook reference is missing.
+        ConfigurationError: If the curated hook reference is unavailable.
+        LLMError: If the provider call failed after retries.
+        LLMResponseError: If the model returned an empty answer.
     """
-    if not KNOWLEDGE.is_file():
-        raise FileNotFoundError(f"Hook reference not found at {KNOWLEDGE}")
+    hooks = load_hook_reference()
 
-    hooks = KNOWLEDGE.read_text(encoding="utf-8")
     messages: list[dict[str, Any]] = [
         {"role": "system", "content": SYSTEM_PROMPT.format(hooks=hooks)},
     ]
 
     if env_info:
         logger.info(
-            "Using site environment: WordPress %s, PHP %s",
-            env_info.get("wp_version"),
-            env_info.get("php_version"),
+            "Using site environment for code generation",
+            extra={
+                "wp_version": env_info.get("wp_version"),
+                "php_version": env_info.get("php_version"),
+            },
         )
         messages.append(
             {
@@ -95,16 +114,10 @@ def generate(request: str, env_info: dict[str, Any] | None = None) -> str:
 
     messages.append({"role": "user", "content": request})
 
-    logger.info("Generating snippet (%d chars of hook reference)", len(hooks))
-    response = get_llm("smart").invoke(messages)
-    snippet = extract_text(response.content)
-    logger.info("Snippet generated (%d chars)", len(snippet))
+    logger.info("Generating snippet", extra={"hook_reference_chars": len(hooks)})
+    snippet = invoke_text(get_llm("smart"), messages)
+    logger.info("Snippet generated", extra={"snippet_chars": len(snippet)})
     return snippet
-
-    messages.append({"role": "user", "content": request})
-
-    response = get_llm("smart").invoke(messages)
-    return extract_text(response.content)
 
 
 def code_generator_node(state: SupportState) -> dict[str, object]:

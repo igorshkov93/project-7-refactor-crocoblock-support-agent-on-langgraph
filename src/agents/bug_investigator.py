@@ -1,13 +1,15 @@
 """Agent #3: investigates bug reports using live site diagnostics."""
 
-import asyncio
 from typing import Any
 
 from langgraph.prebuilt import create_react_agent
 from langgraph.types import interrupt
 from pydantic import BaseModel, Field
 
+from src.async_bridge import run_sync
 from src.config import get_llm
+from src.exceptions import InvestigationError, MCPServerError
+from src.llm_call import invoke_structured
 from src.logging_config import get_logger
 from src.mcp_server.client import load_tools
 from src.settings import settings
@@ -44,6 +46,11 @@ When writing findings:
 
 Keep it under 200 words."""
 
+DIAGNOSTICS_UNAVAILABLE = (
+    "I couldn't connect to your site to run diagnostics right now. "
+    "A human support agent will pick this up and take a look."
+)
+
 
 class Findings(BaseModel):
     """Structured outcome of a diagnostic round."""
@@ -76,15 +83,29 @@ def run_diagnostics(messages: list[dict[str, Any]]) -> str:
 
     Returns:
         The agent's latest message as plain text.
+
+    Raises:
+        MCPServerError: If the diagnostic tools could not be loaded.
+        InvestigationError: If the agent produced no readable message.
+        LLMError: If the provider call failed after retries.
     """
     logger.info("Running diagnostics over %d message(s)", len(messages))
+    tools = load_tools()
+
     agent = create_react_agent(
         model=get_llm("smart"),
-        tools=load_tools(),
+        tools=tools,
         prompt=SYSTEM_PROMPT,
     )
-    result = asyncio.run(agent.ainvoke({"messages": messages}))
+
+    result = run_sync(agent.ainvoke({"messages": messages}))
+
     text = extract_text(result["messages"][-1].content)
+    if not text:
+        raise InvestigationError(
+            "The diagnostic agent returned no readable message"
+        )
+
     logger.debug("Diagnostics produced %d chars", len(text))
     return text
 
@@ -93,10 +114,11 @@ def classify_response(text: str) -> Findings:
     """Decide whether the agent is asking or concluding.
 
     Raises:
-        TypeError: If the model returns unstructured output.
+        LLMResponseError: If the model's answer does not fit Findings.
+        LLMError: If the provider call failed after retries.
     """
-    llm = get_llm("fast").with_structured_output(Findings)
-    verdict = llm.invoke(
+    return invoke_structured(
+        get_llm("fast"),
         [
             {
                 "role": "system",
@@ -108,11 +130,9 @@ def classify_response(text: str) -> Findings:
                 ),
             },
             {"role": "user", "content": text},
-        ]
+        ],
+        Findings,
     )
-    if not isinstance(verdict, Findings):
-        raise TypeError(f"Classifier returned {type(verdict).__name__}, expected Findings")
-    return verdict
 
 
 def bug_investigator_node(state: SupportState) -> dict[str, object]:
@@ -128,7 +148,20 @@ def bug_investigator_node(state: SupportState) -> dict[str, object]:
         conversation.append({"role": "assistant", "content": entry["question"]})
         conversation.append({"role": "user", "content": entry["reply"]})
 
-    raw = run_diagnostics(conversation)
+    try:
+        raw = run_diagnostics(conversation)
+    except (MCPServerError, InvestigationError) as error:
+        logger.error(
+            "Diagnostics unavailable, escalating",
+            extra={"error_type": type(error).__name__, "error_detail": str(error)},
+        )
+        return {
+            "final_answer": DIAGNOSTICS_UNAVAILABLE,
+            "clarifying_rounds": rounds,
+            "handled_by": "bug_investigator",
+            "needs_human": True,
+        }
+
     verdict = classify_response(raw)
 
     if not verdict.needs_input or rounds >= settings.max_clarifying_rounds:

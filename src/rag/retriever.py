@@ -9,7 +9,6 @@ into an import error pointing at the wrong place.
 
 from __future__ import annotations
 
-import logging
 from functools import lru_cache
 from typing import Any
 
@@ -22,10 +21,11 @@ from src.exceptions import (
     RerankError,
     VectorStoreError,
 )
+from src.logging_config import get_logger
 from src.retry import with_retry
 from src.settings import settings
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 @lru_cache(maxsize=1)
