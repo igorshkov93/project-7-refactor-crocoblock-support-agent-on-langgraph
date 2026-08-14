@@ -1,5 +1,7 @@
 
 """LangGraph assembly of the multi-agent support system."""
+from typing import Any
+
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
@@ -54,7 +56,7 @@ def route_after_router(state: SupportState) -> str:
     logger.debug("Routing '%s' to node '%s'", query_type, destination)
     return destination
 
-def build_graph() -> CompiledStateGraph:
+def build_graph() -> CompiledStateGraph[SupportState, Any, Any, Any]:
     """Assemble and compile the support graph."""
     builder = StateGraph(SupportState)
 
