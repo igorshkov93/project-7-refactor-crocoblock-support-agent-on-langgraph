@@ -99,3 +99,23 @@ Gemini counts reasoning tokens against `max_output_tokens`; Anthropic does not.
 The limit was raised to 4000 in `Settings`, which is generous for Gemini and
 inert for Anthropic. The bug was invisible until the Gemini branch was restored,
 because all previous development had run on the paid provider.
+
+### Step 4 — logging
+
+| Metric | Before | After |
+|---|---|---|
+| ruff issues | 126 | 0 |
+| mypy errors | 33 | 4 |
+| `print()` in application code | 49 | 0 |
+| Modules with a logger | 0 | 12 |
+| Broken imports in `tests/` | 4 | 0 |
+
+Introduced `src/logging_config.py`: a single setup point, `stderr` output so
+CLI answers stay pipeable on `stdout`, third-party loggers silenced at WARNING,
+and a `LoggerAdapter` that binds LangGraph's `thread_id` to every message for
+correlated output.
+
+Two bugs surfaced. The graph was compiled twice — once in `graph.py`, once in
+`runner.py` — leaving two independent `InMemorySaver` instances, so a run
+suspended on `interrupt()` could resume against a checkpointer that never saw
+it. And

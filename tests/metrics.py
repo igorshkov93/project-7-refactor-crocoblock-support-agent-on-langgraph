@@ -7,16 +7,19 @@ import json
 import time
 import uuid
 from collections import defaultdict
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 from statistics import mean, median
+from typing import Any
 
 from langchain_core.messages import HumanMessage
 
 from src.agents.router import classify
-from src.config import LLM_PROVIDER, MODELS
-from src.graph import CONFIDENCE_THRESHOLD, graph
+from src.config import MODELS
+from src.graph import graph
 from src.rag.retriever import search
+from src.settings import settings
 
 TESTS = Path(__file__).resolve().parent
 OUT = TESTS.parent / "metrics"
@@ -27,8 +30,21 @@ def load(name: str) -> list[dict]:
     return json.loads((TESTS / name).read_text(encoding="utf-8"))
 
 
-def with_retry(func, *args, attempts: int = 3, **kwargs):
-    """Call func, backing off when the provider rate limit is hit."""
+def with_retry(func: Callable[..., Any], *args: Any, attempts: int = 3, **kwargs: Any) -> Any:
+    """Call func, backing off when the provider rate limit is hit.
+
+    Args:
+        func: The callable to invoke.
+        *args: Positional arguments passed through to func.
+        attempts: How many times to try before giving up.
+        **kwargs: Keyword arguments passed through to func.
+
+    Returns:
+        Whatever func returns.
+
+    Raises:
+        RuntimeError: If the retry loop somehow exits without a result.
+    """
     for attempt in range(attempts):
         try:
             return func(*args, **kwargs)
@@ -39,7 +55,7 @@ def with_retry(func, *args, attempts: int = 3, **kwargs):
             wait = 30 * (attempt + 1)
             print(f"    rate limited, waiting {wait}s...")
             time.sleep(wait)
-
+    raise RuntimeError(f"with_retry exhausted {attempts} attempts without returning")
 
 # ---------------------------------------------------------------------------
 # 1. Router accuracy
@@ -99,7 +115,7 @@ def measure_escalation() -> dict:
     details = []
     for case in cases:
         decision = with_retry(classify, case["query"])
-        low = decision.confidence < CONFIDENCE_THRESHOLD
+        low = decision.confidence < settings.confidence_threshold
         escalated += low
         details.append({
             "query": case["query"],
@@ -114,7 +130,7 @@ def measure_escalation() -> dict:
         "total": total,
         "escalated": escalated,
         "rate": round(escalated / total, 4),
-        "threshold": CONFIDENCE_THRESHOLD,
+        "threshold": settings.confidence_threshold,
         "details": details,
     }
 
@@ -205,8 +221,11 @@ def run(label: str, func):
 
 
 def main() -> None:
-    print(f"Provider: {LLM_PROVIDER} / fast={MODELS[LLM_PROVIDER]['fast']}, "
-          f"smart={MODELS[LLM_PROVIDER]['smart']}")
+    print(
+        f"Provider: {settings.llm_provider} / "
+        f"fast={MODELS[settings.llm_provider]['fast']}, "
+        f"smart={MODELS[settings.llm_provider]['smart']}"
+    )
 
     router = run("1/4  Router accuracy", measure_router)
     if "error" not in router:
@@ -243,10 +262,11 @@ def main() -> None:
             print(f"  {agent:<34} mean {stats['mean_sec']:>6.2f}s  "
                   f"median {stats['median_sec']:>6.2f}s  (n={stats['runs']})")
 
+
     results = {
         "generated_at": datetime.now().isoformat(timespec="seconds"),
-        "provider": LLM_PROVIDER,
-        "models": MODELS[LLM_PROVIDER],
+        "provider": settings.llm_provider,
+        "models": MODELS[settings.llm_provider],
         "router": router,
         "escalation": escalation,
         "rag": rag,

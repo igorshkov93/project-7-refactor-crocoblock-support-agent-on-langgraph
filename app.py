@@ -40,7 +40,11 @@ for role, text in st.session_state.history:
     with st.chat_message(role):
         st.markdown(text)
 
-placeholder = "Ваш ответ агенту…" if st.session_state.awaiting else "Опишите проблему или задайте вопрос"
+placeholder = (
+    "Ваш ответ агенту…"
+    if st.session_state.awaiting
+    else "Опишите проблему или задайте вопрос"
+)
 
 if prompt := st.chat_input(placeholder):
     st.session_state.history.append(("user", prompt))

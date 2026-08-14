@@ -9,7 +9,7 @@ from src.rag.index_chunks import INDEX_NAME
 load_dotenv()
 
 
-def main():
+def main() -> None:
     pc = Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
     existing = [i["name"] for i in pc.list_indexes()]
 

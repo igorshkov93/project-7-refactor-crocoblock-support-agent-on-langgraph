@@ -9,7 +9,7 @@ load_dotenv()
 MODEL = "embed-v4.0"
 
 
-def main():
+def main() -> None:
     client = cohere.ClientV2(api_key=os.getenv("COHERE_API_KEY"))
     response = client.embed(
         texts=["How do I save form records?"],

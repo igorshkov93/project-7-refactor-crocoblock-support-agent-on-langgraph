@@ -4,7 +4,7 @@ from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from src.rag.index_chunks import DIMENSION, EMBED_MODEL
 
 
-def main():
+def main() -> None:
     embeddings = GoogleGenerativeAIEmbeddings(
         model=EMBED_MODEL, output_dimensionality=DIMENSION
     )

@@ -6,7 +6,7 @@ URL = "https://jetformbuilder.com/addons/address-autocomplete/"
 HEADERS = {"User-Agent": "crocoblock-support-agent/1.0 (portfolio project)"}
 
 
-def main():
+def main() -> None:
     response = requests.get(URL, headers=HEADERS, timeout=30)
     soup = BeautifulSoup(response.text, "lxml")
 

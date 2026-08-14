@@ -4,15 +4,20 @@ import time
 from collections import defaultdict
 from pathlib import Path
 
-from src.agents.router import classify
-from src.config import LLM_PROVIDER, MODELS
+from src.agents.router import RoutingDecision, classify
+from src.config import MODELS
+from src.settings import settings
 
 TESTSET = Path("tests/router_testset.json")
 DELAY_SECONDS = 13  # free tier allows 5 requests per minute
 
 
-def classify_with_retry(query: str, attempts: int = 3):
-    """Classify a query, backing off when the rate limit is hit."""
+def classify_with_retry(query: str, attempts: int = 3) -> RoutingDecision:
+    """Classify a query, backing off when the rate limit is hit.
+
+    Raises:
+        RuntimeError: If the retry loop exits without a decision.
+    """
     for attempt in range(attempts):
         try:
             return classify(query)
@@ -22,13 +27,12 @@ def classify_with_retry(query: str, attempts: int = 3):
             wait = 30 * (attempt + 1)
             print(f"    rate limited, waiting {wait}s...")
             time.sleep(wait)
+    raise RuntimeError(f"classify_with_retry exhausted {attempts} attempts")
 
 
 def main():
     cases = json.loads(TESTSET.read_text(encoding="utf-8"))
-    print(f"Provider: {LLM_PROVIDER} / {MODELS[LLM_PROVIDER]['fast']}")
-    print(f"Cases: {len(cases)}\n")
-
+    print(f"Provider: {settings.llm_provider} / {MODELS[settings.llm_provider]['fast']}")
     correct = 0
     per_class = defaultdict(lambda: {"total": 0, "correct": 0})
     failures = []
