@@ -1,8 +1,8 @@
 """Evaluate router accuracy against the labelled test set."""
 import json
+import time
 from collections import defaultdict
 from pathlib import Path
-import time
 
 from src.agents.router import classify
 from src.config import LLM_PROVIDER, MODELS

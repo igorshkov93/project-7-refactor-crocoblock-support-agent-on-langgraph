@@ -1,5 +1,6 @@
 import streamlit as st
-from src.runner import start, resume, new_thread_id
+
+from src.runner import new_thread_id, resume, start
 
 st.set_page_config(page_title="Crocoblock AI Support Agent", page_icon="🐊")
 st.title("🐊 Crocoblock AI Support Agent")
