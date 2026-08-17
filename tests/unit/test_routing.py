@@ -8,8 +8,9 @@ providers to reach the same assertions.
 from __future__ import annotations
 
 import pytest
+from langgraph.graph import END
 
-from src.graph import route_after_router
+from src.graph import escalate_node, route_after_investigation, route_after_router
 from src.settings import settings
 
 
@@ -56,3 +57,47 @@ def test_unknown_query_type_escalates():
 def test_empty_state_escalates():
     """Missing fields default to zero confidence, which escalates."""
     assert route_after_router({}) == "escalate"
+
+# --- the investigation loop ------------------------------------------------
+
+
+def test_investigation_loops_back_while_the_answer_is_missing():
+    """No final answer means the investigator needs another round."""
+    assert route_after_investigation({}) == "bug_investigator"
+
+
+def test_investigation_ends_once_an_answer_exists():
+    """A filled answer terminates the loop instead of asking again."""
+    state = {"final_answer": "Enable Save Form Record in the post-submit actions."}
+    assert route_after_investigation(state) == END
+
+
+@pytest.mark.parametrize("answer", ["", None])
+def test_falsy_answers_do_not_end_the_investigation(answer):
+    """An empty string is not an answer: the check is truthiness, not presence."""
+    assert route_after_investigation({"final_answer": answer}) == "bug_investigator"
+
+
+def test_clarifying_rounds_do_not_by_themselves_stop_the_loop():
+    """The round counter is enforced inside the agent, not by the edge."""
+    state = {"clarifying_rounds": 99}
+    assert route_after_investigation(state) == "bug_investigator"
+
+
+# --- escalation ------------------------------------------------------------
+
+
+def test_escalation_marks_the_ticket_for_a_human():
+    """The three fields the interface reads after a graph run."""
+    update = escalate_node({"query_type": "rest", "confidence": 0.9})
+
+    assert update["needs_human"] is True
+    assert update["handled_by"] == "escalation"
+    assert update["final_answer"]
+
+
+def test_escalation_works_on_an_empty_state():
+    """Escalation is the fallback path, so it must never depend on prior fields."""
+    update = escalate_node({})
+
+    assert update["needs_human"] is True
