@@ -28,7 +28,7 @@ select = [
 ignore = ["ANN401"]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/*" = ["ANN", "T20"]
+"tests/**" = ["ANN", "T20"]
 "scripts/*" = ["T20"]
 # CLI and Streamlit entry points: print IS the user interface here.
 "src/cli.py" = ["T20"]
@@ -40,3 +40,15 @@ strict = true
 # Pinecone and FastMCP ship no type stubs; their APIs degrade to Any.
 ignore_missing_imports = true
 show_error_codes = true
+
+[tool.pytest.ini_options]
+# Only tests/unit is automated. The scripts directly under tests/ are manual
+# probes against live Pinecone, Cohere and WordPress: they are run by hand,
+# never collected. Narrowing python_files keeps their *_test.py suffix from
+# being picked up.
+testpaths = ["tests/unit"]
+pythonpath = ["."]
+python_files = ["test_*.py"]
+addopts = "-q --strict-markers"
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
