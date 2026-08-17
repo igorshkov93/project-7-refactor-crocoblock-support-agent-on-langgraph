@@ -317,3 +317,37 @@ renaming `.env` away and running the full suite.
 - One test reads the real `jfb_hooks.md` rather than a fixture. If that file is
   lost in a merge, the code generator starts inventing hook signatures — the
   exact failure its prompt exists to prevent.
+
+  ## Step 10 — Continuous integration
+
+Every push to any branch runs three checks on a clean Ubuntu runner: `ruff
+check .`, `mypy src app.py`, `pytest`. First run passed in 1m 13s.
+
+**No secrets are configured for the workflow.** That is the point rather than an
+oversight: the suite injects stub credentials in `conftest.py` and replaces
+every outbound call, so a green run without keys is evidence the tests are
+genuinely isolated. Any real network call would fail on a missing key instead of
+passing quietly on a developer machine that happens to have `.env` in place.
+
+The pipeline was verified in both directions. A branch carrying one deliberately
+failing assertion was pushed and the run went red with exit code 1; the branch
+was then deleted. A CI that has never been seen to fail proves nothing.
+
+**Scope decisions:**
+
+- `ruff` runs on the whole repository. `mypy` runs on `src` and `app.py` only —
+  annotations in `tests/` are switched off in `per-file-ignores`, and typing the
+  stubs under `--strict` would be a lot of work for no defect-finding power.
+- `app.py` was pulled into the type check rather than left out. It is the entry
+  point every reader of the repository opens first, and it reaches into graph
+  state. Three `type-arg` and `no-any-return` errors were fixed to get it in.
+
+### Known limitation carried forward
+
+`src/retry.py` backs off on a fixed exponential schedule and ignores the
+`retryDelay` the provider returns in the response body. Under batch evaluation
+runs the providers ask for 20–40 seconds while the policy waits 1–3. Left
+unfixed deliberately: the two SDKs report the delay in different places —
+Gemini in a structured error detail, Anthropic in a `retry-after` header — so a
+correct fix means parsing both formats, and the failure only appears under batch
+load, which the evaluation scripts already work around with explicit pauses.
