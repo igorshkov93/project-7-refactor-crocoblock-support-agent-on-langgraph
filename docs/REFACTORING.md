@@ -261,3 +261,59 @@ four of the six routable cases are non-English precisely so that "distrust
 anything not in English" cannot pass as a fix.
 
 Gemini figures are pending a free-tier quota reset.
+
+## Step 9 — Automated tests with stubbed providers
+
+**Before:** `pytest` could not run at all. Sixteen manual probe scripts under
+`tests/` carry a `*_test.py` suffix, which pytest collects by default. Collection
+means import, and importing any of them reaches `src.graph`, which builds the
+graph at module level and fails without API keys. A CI run would have been red
+before a single assertion executed.
+
+**After:** 129 tests, 1.4 seconds, no network, no keys, no quota. Verified by
+renaming `.env` away and running the full suite.
+
+### What was done
+
+- Narrowed collection to `tests/unit` via `testpaths`, and `python_files` to
+  `test_*.py`. The manual probes keep their names and their purpose: they are
+  run by hand against live Pinecone, Cohere and WordPress.
+- Renamed `scripts/test_embed.py` and `scripts/test_embed_cohere.py` to
+  `*_probe.py`, so an explicit `pytest scripts/` cannot pick them up either.
+- `tests/unit/conftest.py` injects stub credentials into `os.environ` at module
+  scope, before pytest imports any test module. Environment variables outrank
+  `.env` in pydantic-settings, so the suite behaves identically with or without
+  a local `.env`.
+- `requirements-dev.txt` split out from `requirements.txt`.
+- `route_after_investigation` moved from inside `build_graph` to module level,
+  so the loop condition is testable on plain dictionaries.
+
+### Coverage by layer
+
+| Module | What is pinned |
+|---|---|
+| `settings.py` | Validators reject a provider without its key, a retry ceiling below the initial wait, tracing without a key. Secrets stay out of `repr`. |
+| `graph.py` | All four routing branches, the threshold boundary in both directions, the investigation loop, escalation. |
+| `retry.py` | Retryable and non-retryable failures, attempt caps, async support, and the flags subclasses deliberately flip. |
+| `llm_call.py` | String and block content shapes, empty answers, schema violations, provider-error mapping. |
+| `retriever.py` | Rerank indices selecting the right metadata, stage isolation, per-stage exceptions. |
+| Four agents | Model tier, prompt assembly, state keys, and every escalation path. |
+
+### Defects found by writing the tests
+
+1. **`requirements.txt` was unusable.** `tenacity==<9.1.4>` is not valid PEP 508
+   syntax — `pip install -r` fails on that line. Never surfaced locally because
+   packages had always been installed one at a time. `langchain-google-genai`
+   was listed twice; `pydantic-settings` and `langsmith` were missing despite
+   being imported.
+2. **Two probe scripts sat under a name pytest collects.** Latent until the day
+   someone ran `pytest` at the repository root.
+
+### Deliberate omissions
+
+- Retryable paths in `llm_call.py` are not exercised through the decorator:
+  `@with_retry()` carries production waits, so those tests would really sleep.
+  The policy itself is covered in `test_retry.py` with millisecond waits.
+- One test reads the real `jfb_hooks.md` rather than a fixture. If that file is
+  lost in a merge, the code generator starts inventing hook signatures — the
+  exact failure its prompt exists to prevent.
