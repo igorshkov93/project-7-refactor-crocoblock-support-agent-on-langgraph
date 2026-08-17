@@ -170,3 +170,94 @@ a resumed run, which is the agent's entire reason to exist.
 Fixed with `src/async_bridge.py`: one background event loop per process, started
 on first use and never torn down, with `run_sync()` submitting coroutines to it
 from synchronous code.
+## Step 8 — Retrieval miss: diagnosis
+
+**Symptom.** "How do I add a hidden field that stores the current user ID?"
+returns five pages about user roles and accounts. The answer is correct, the
+sources are not.
+
+**Baseline** (`crocoblock-retrieval`, 12 examples): retrieval_hit 0.83,
+retrieval_rank 0.53. Two cases score zero: `hidden-field` and `media-field`.
+
+**Not a corpus gap.** Both pages are indexed (247 pages, 1836 chunks in
+namespace `jfb`); `hidden-field` contributes 8 chunks.
+
+**Not dense search.** Pinecone returns the correct page at candidate
+position 2, with four of its chunks inside the top 20.
+
+**Reranking drops it.** Cohere rerank-v3.5 promotes three user-role pages
+(0.81, 0.81, 0.78) and removes every `hidden-field` chunk from the top 5.
+
+**Prepending the page title does not help.** Reranking `title + text`
+instead of `text` returns the same five pages, merely reordered.
+
+**Root cause: chunk boundaries.** The chunk holding the literal answer
+("Current User ID ㅡ an option that assigns the ID of the user that is
+currently logged in") is the middle of a bulleted list. It opens mid-item,
+ends mid-word, and never names the feature it describes. Judged in isolation
+it reads as an unlabelled list of properties, while a user-role page reads as
+coherent prose about users. The reranker behaves reasonably on the input it
+is given.
+
+**Not fixed here.** The fix is re-chunking at indexing time — carrying
+section headings into every chunk and avoiding splits inside lists — which
+means rebuilding the index and falls outside the scope of this refactor. The
+low `retrieval_rank` on half the passing cases is likely the same mechanism.
+
+## Step 8 — Router calibration differs by provider
+
+The router assigns a confidence score and the graph escalates to a human below
+0.6. The `crocoblock-calibration` dataset labels 16 queries with whether they
+should escalate: 10 too vague to classify (including short non-English and
+transliterated messages), 6 specific enough to route (4 of them non-English, so
+that lowering confidence on everything non-English cannot pass as a fix).
+
+Same prompt, same dataset, two providers:
+
+| Metric | Gemini 2.5 Flash Lite | Claude Haiku 4.5 |
+|---|---|---|
+| escalation_correct | 0.47 | 0.93 |
+| routed_type_correct | 1.00 | 1.00 |
+
+Note: the Gemini figure is from a partial run — 3 of 16 examples failed on the
+free-tier daily quota, so the average covers 13 cases. It is reported here as
+indicative and will be re-measured on a full run.
+
+**Classification is not the problem.** Both providers label every routable
+query correctly. What differs is the confidence attached to a vague one:
+Gemini scores `"не работает"` as `bug` at 0.90, sailing past the threshold,
+while Haiku escalates the same message.
+
+**One case fails on both.** `"форма не работает"` is not escalated. Naming a
+subject ("форма") appears to read as sufficient
+
+### The fix
+
+Two changes to the confidence section of the router prompt:
+
+1. Confidence was redefined as "does this message contain enough information
+   to act on", not "how sure am I of the category". The old wording said to
+   lower confidence when a message was "too vague to classify", which the model
+   read literally — it could classify `"не работает"` as a bug, so it scored
+   0.90. Naming a subject was called out explicitly as not being diagnostic
+   information.
+2. The threshold value was removed from the prompt in favour of bands (0.15–
+   0.35 for vague, 0.75–0.95 for actionable). Naming 0.6 in the text anchored
+   the model to it: an earlier revision scored `"форма не работает"` at exactly
+   0.60, which the graph compares with `<` and therefore did not escalate. With
+   bands the same message scores 0.25.
+
+Measured on Claude Haiku 4.5:
+
+| Metric | Before | After |
+|---|---|---|
+| escalation_correct (16 cases) | 0.93 | 1.00 |
+| routed_type_correct (6 routable cases) | 1.00 | 1.00 |
+| routing_accuracy (25 cases) | — | 1.00 |
+
+The second and third rows are the guard rails: a prompt that simply lowered
+confidence everywhere would score well on escalation while breaking these, and
+four of the six routable cases are non-English precisely so that "distrust
+anything not in English" cannot pass as a fix.
+
+Gemini figures are pending a free-tier quota reset.

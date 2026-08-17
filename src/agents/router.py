@@ -1,4 +1,3 @@
-
 """Agent #1: classifies incoming support requests."""
 from pydantic import BaseModel, Field
 
@@ -29,8 +28,23 @@ Rules:
 bug. The problem must be diagnosed before any fix is written.
 - If the customer asks how to achieve something that the plugin supports \
 natively, that is how_to, not code.
-- Set confidence below 0.6 when the message is too vague to classify \
-reliably.
+
+Confidence:
+Confidence measures whether the message contains enough information to act on, \
+not how plausible your category guess is. A message you can categorise but not \
+act on gets a low score. Do not hedge toward the middle: decide which of the \
+two cases below the message falls into and score inside that band.
+- Score 0.15 to 0.35 when the message gives you nothing to act on: it states \
+only that something does not work, names a subject without describing what \
+happens ("the form is broken", "the plugin is broken"), refers to context you \
+cannot see ("the thing we discussed", "same as before"), asks a question with \
+no antecedent, or is unintelligible. Naming a subject is not diagnostic \
+information.
+- Score 0.75 to 0.95 when the message gives you something to act on: a \
+symptom, an error message, a specific feature or setting, a concrete goal, or \
+a clear request.
+- The language the message is written in never affects confidence. A detailed \
+report in any language scores high; a vague one in English scores low.
 
 Reply with the category, a confidence score between 0 and 1, and one short \
 sentence explaining your choice."""
@@ -40,7 +54,6 @@ class RoutingDecision(BaseModel):
     """Structured output of the router agent."""
 
     query_type: QueryType = Field(description="One of: how_to, bug, code, rest")
-
     confidence: float = Field(
         description="Confidence between 0.0 and 1.0", ge=0.0, le=1.0
     )
@@ -74,9 +87,7 @@ def router_node(state: SupportState) -> dict[str, object]:
     """Graph node: classify the latest user message."""
     query = str(state["messages"][-1].content)
     logger.info("Routing query: %.60s", query)
-
     decision = classify(query)
-
     logger.info(
         "Routed as '%s' (confidence %.2f): %s",
         decision.query_type,

@@ -1,0 +1,18 @@
+[
+  {"query": "it doesnt work", "should_escalate": true, "expected_type": null, "note": "no subject at all"},
+  {"query": "help", "should_escalate": true, "expected_type": null, "note": "no content"},
+  {"query": "how do I do the thing we discussed yesterday?", "should_escalate": true, "expected_type": null, "note": "missing context"},
+  {"query": "same problem as before", "should_escalate": true, "expected_type": null, "note": "references unknown history"},
+  {"query": "can you check my site?", "should_escalate": true, "expected_type": null, "note": "no site, no problem stated"},
+  {"query": "is it possible?", "should_escalate": true, "expected_type": null, "note": "no antecedent"},
+  {"query": "asdfgh", "should_escalate": true, "expected_type": null, "note": "gibberish"},
+  {"query": "не работает", "should_escalate": true, "expected_type": null, "note": "regression case: scored bug 0.90 on Gemini, 0.75 on Anthropic"},
+  {"query": "форма не работает", "should_escalate": true, "expected_type": null, "note": "non-English, no diagnostic detail"},
+  {"query": "ne rabotaet nichego", "should_escalate": true, "expected_type": null, "note": "transliterated, no detail"},
+  {"query": "не приходят письма после отправки формы, в логах пусто", "should_escalate": false, "expected_type": "bug", "note": "non-English but fully diagnostic"},
+  {"query": "как добавить поле repeater в форму?", "should_escalate": false, "expected_type": "how_to", "note": "non-English but specific how-to"},
+  {"query": "нужен php хук, который меняет URL редиректа после сабмита", "should_escalate": false, "expected_type": "code", "note": "non-English but specific code request"},
+  {"query": "сколько стоит lifetime лицензия?", "should_escalate": false, "expected_type": "rest", "note": "non-English pricing question"},
+  {"query": "the select field is empty, options are not loading", "should_escalate": false, "expected_type": "bug", "note": "English control, clear bug"},
+  {"query": "Give me a hook that fires after the form is submitted", "should_escalate": false, "expected_type": "code", "note": "English control, clear code"}
+]
