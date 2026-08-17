@@ -1,3 +1,5 @@
+from typing import Any
+
 import streamlit as st
 
 from src.runner import new_thread_id, resume, start
@@ -14,17 +16,18 @@ if "thread_id" not in st.session_state:
     st.session_state.awaiting = False  # True, если граф стоит на interrupt()
 
 
-def answer_text(state: dict) -> str:
+def answer_text(state: dict[str, Any]) -> str:
     for field in ANSWER_FIELDS:
-        if state.get(field):
-            return state[field]
-    return "_(ответ не найден в стейте)_"
+        value = state.get(field)
+        if value:
+            return str(value)
+    return "_(no answer found in state)_"
 
 
-def render_badge(state: dict) -> None:
-    qt, by = state.get("query_type"), state.get("handled_by")
-    if qt or by:
-        st.caption(f"`{qt}` → **{by}**")
+def render_badge(state: dict[str, Any]) -> None:
+    query_type, handled_by = state.get("query_type"), state.get("handled_by")
+    if query_type or handled_by:
+        st.caption(f"`{query_type}` → **{handled_by}**")
 
 
 with st.sidebar:
