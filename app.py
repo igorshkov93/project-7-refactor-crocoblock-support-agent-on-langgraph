@@ -54,9 +54,9 @@ if prompt := st.chat_input(placeholder):
     with st.chat_message("assistant"):
         with st.spinner("Агент работает…"):
             if st.session_state.awaiting:
-                state, question = resume(prompt, st.session_state.thread_id)
+                state, question = resume(prompt, st.session_state.thread_id, "streamlit")
             else:
-                state, question = start(prompt, st.session_state.thread_id)
+                state, question = start(prompt, st.session_state.thread_id, "streamlit")
 
         reply = question if question else answer_text(state)
         st.session_state.awaiting = bool(question)

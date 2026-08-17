@@ -5,6 +5,7 @@ import logging
 import sys
 
 from src.logging_config import get_logger, setup_logging
+from src.observability import flush_traces
 from src.runner import new_thread_id, resume, start
 
 logger = get_logger(__name__)
@@ -47,15 +48,20 @@ def main() -> None:
         raise SystemExit(1)
 
     thread_id = new_thread_id()
-    state, question = start(query, thread_id)
 
-    while question:
-        print(f"\n? {question}")
-        answer = input("> ").strip()
-        state, question = resume(answer, thread_id)
+    try:
+        state, question = start(query, thread_id)
 
-    show(state)
+        while question:
+            print(f"\n? {question}")
+            answer = input("> ").strip()
+            state, question = resume(answer, thread_id)
+
+        show(state)
+    finally:
+        flush_traces()
 
 
 if __name__ == "__main__":
     main()
+

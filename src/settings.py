@@ -1,5 +1,4 @@
 """Application settings: a single validated source of configuration."""
-
 from typing import Literal
 
 from pydantic import Field, SecretStr, model_validator
@@ -51,6 +50,23 @@ class Settings(BaseSettings):
     # Human-in-the-loop
     max_clarifying_rounds: int = Field(default=2, ge=0)
 
+    # Timeouts for external dependencies, in seconds
+    llm_timeout_seconds: float = Field(default=60.0, gt=0)
+    pinecone_timeout_seconds: float = Field(default=10.0, gt=0)
+    cohere_timeout_seconds: float = Field(default=15.0, gt=0)
+    wp_timeout_seconds: float = Field(default=20.0, gt=0)
+
+    # Retry policy for transient failures
+    retry_attempts: int = Field(default=3, ge=1, le=10)
+    retry_initial_wait: float = Field(default=1.0, gt=0)
+    retry_max_wait: float = Field(default=10.0, gt=0)
+
+    # Observability
+    langsmith_tracing: bool = False
+    langsmith_endpoint: str = "https://api.smith.langchain.com"
+    langsmith_api_key: SecretStr | None = None
+    langsmith_project: str = "project-7-crocoblock-support"
+
     @model_validator(mode="after")
     def check_active_provider_key(self) -> "Settings":
         """Fail fast when the selected provider has no credentials."""
@@ -65,17 +81,6 @@ class Settings(BaseSettings):
             )
         return self
 
-# Timeouts for external dependencies, in seconds
-    llm_timeout_seconds: float = Field(default=60.0, gt=0)
-    pinecone_timeout_seconds: float = Field(default=10.0, gt=0)
-    cohere_timeout_seconds: float = Field(default=15.0, gt=0)
-    wp_timeout_seconds: float = Field(default=20.0, gt=0)
-
-    # Retry policy for transient failures
-    retry_attempts: int = Field(default=3, ge=1, le=10)
-    retry_initial_wait: float = Field(default=1.0, gt=0)
-    retry_max_wait: float = Field(default=10.0, gt=0)
-
     @model_validator(mode="after")
     def check_retry_waits(self) -> "Settings":
         """A back-off ceiling below the initial wait would silently be ignored."""
@@ -84,5 +89,16 @@ class Settings(BaseSettings):
                 "RETRY_MAX_WAIT must be greater than or equal to RETRY_INITIAL_WAIT."
             )
         return self
+
+    @model_validator(mode="after")
+    def check_tracing_credentials(self) -> "Settings":
+        """Tracing without a key fails silently and loses every trace."""
+        if self.langsmith_tracing and self.langsmith_api_key is None:
+            raise ValueError(
+                "LANGSMITH_TRACING is enabled but LANGSMITH_API_KEY is not set. "
+                "Add the key to your .env file or set LANGSMITH_TRACING=false."
+            )
+        return self
+
 
 settings = Settings()

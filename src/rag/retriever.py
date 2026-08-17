@@ -5,6 +5,11 @@ wrapped separately: an embedding failure, a vector-store failure and a rerank
 failure are distinct exceptions carrying the service name. Clients are built
 lazily on first use — constructing them at import time turned a missing API key
 into an import error pointing at the wrong place.
+
+Each stage is also traced separately. Pinecone and Cohere are called through
+their own SDKs, which LangSmith does not instrument automatically, so without
+these decorators the retrieval stages are invisible in a trace and show up only
+as unexplained time inside the docs_qa node.
 """
 
 from __future__ import annotations
@@ -13,6 +18,7 @@ from functools import lru_cache
 from typing import Any
 
 import cohere
+from langsmith import traceable
 from pinecone import Pinecone
 
 from src.exceptions import (
@@ -26,6 +32,15 @@ from src.retry import with_retry
 from src.settings import settings
 
 logger = get_logger(__name__)
+
+
+def _redact_embedding(inputs: dict[str, Any]) -> dict[str, Any]:
+    """Keep a 1536-float vector out of the trace, recording its shape instead."""
+    embedding = inputs.get("embedding") or []
+    return {
+        "embedding_dim": len(embedding),
+        "candidates": inputs.get("candidates"),
+    }
 
 
 @lru_cache(maxsize=1)
@@ -53,6 +68,7 @@ def _pinecone_index() -> Any:
     return client.Index(settings.pinecone_index)
 
 
+@traceable(run_type="embedding", name="cohere_embed_query")
 @with_retry()
 def _embed_query(query: str) -> list[float]:
     """Embed the query with Cohere.
@@ -76,6 +92,11 @@ def _embed_query(query: str) -> list[float]:
     return list(vectors[0])
 
 
+@traceable(
+    run_type="retriever",
+    name="pinecone_vector_search",
+    process_inputs=_redact_embedding,
+)
 @with_retry()
 def _vector_search(embedding: list[float], candidates: int) -> list[dict[str, Any]]:
     """Run dense search against Pinecone.
@@ -100,6 +121,7 @@ def _vector_search(embedding: list[float], candidates: int) -> list[dict[str, An
     return list(matches)
 
 
+@traceable(run_type="retriever", name="cohere_rerank")
 @with_retry()
 def _rerank(query: str, documents: list[str], top_n: int) -> list[tuple[int, float]]:
     """Reorder candidates with Cohere rerank.
@@ -123,6 +145,7 @@ def _rerank(query: str, documents: list[str], top_n: int) -> list[tuple[int, flo
     return [(item.index, item.relevance_score) for item in response.results]
 
 
+@traceable(run_type="retriever", name="two_stage_retrieval")
 def search(
     query: str,
     top_k: int | None = None,
