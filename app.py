@@ -1,4 +1,4 @@
-from typing import Any
+﻿from typing import Any
 
 import streamlit as st
 
@@ -13,7 +13,7 @@ ANSWER_FIELDS = ("final_answer", "answer", "response")
 if "thread_id" not in st.session_state:
     st.session_state.thread_id = new_thread_id()
     st.session_state.history = []      # [(role, text)]
-    st.session_state.awaiting = False  # True, если граф стоит на interrupt()
+    st.session_state.awaiting = False  # True while the graph sits on interrupt()
 
 
 def answer_text(state: dict[str, Any]) -> str:
@@ -31,9 +31,9 @@ def render_badge(state: dict[str, Any]) -> None:
 
 
 with st.sidebar:
-    st.subheader("Сессия")
+    st.subheader("Session")
     st.code(st.session_state.thread_id, language=None)
-    if st.button("Новый диалог", use_container_width=True):
+    if st.button("New conversation", use_container_width=True):
         st.session_state.thread_id = new_thread_id()
         st.session_state.history = []
         st.session_state.awaiting = False
@@ -44,9 +44,9 @@ for role, text in st.session_state.history:
         st.markdown(text)
 
 placeholder = (
-    "Ваш ответ агенту…"
+    "Your reply to the agent…"
     if st.session_state.awaiting
-    else "Опишите проблему или задайте вопрос"
+    else "Describe the problem or ask a question"
 )
 
 if prompt := st.chat_input(placeholder):
@@ -55,7 +55,7 @@ if prompt := st.chat_input(placeholder):
         st.markdown(prompt)
 
     with st.chat_message("assistant"):
-        with st.spinner("Агент работает…"):
+        with st.spinner("The agent is working…"):
             if st.session_state.awaiting:
                 state, question = resume(prompt, st.session_state.thread_id, "streamlit")
             else:
@@ -67,5 +67,5 @@ if prompt := st.chat_input(placeholder):
         st.markdown(reply)
 
     st.session_state.history.append(("assistant", reply))
-    st.session_state.history.append(("assistant", reply))
     st.rerun()
+
