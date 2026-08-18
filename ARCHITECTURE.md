@@ -36,6 +36,14 @@ handle classification while only the hard cases reach a large one.
 | #3 Bug Investigator | Asks clarifying questions, collects environment data from the live site | MCP: `get_env_info`, `list_plugins`, `get_error_log` | Sonnet |
 | #4 Code Generator | Writes PHP/CSS fixes against the collected context | Curated hook reference (`agents/knowledge/jfb_hooks.md`); reads `env_info` from state when available | Sonnet |
 
+**Two configuration modules, on purpose.** `src/settings.py` reads and validates
+the environment: one `Settings` instance, built at import time, with validators
+that refuse to start when the selected provider has no key or when tracing is
+enabled without one. `src/config.py` builds provider clients from those settings
+and owns the model tier table. The split keeps provider SDKs out of the module
+every other file imports — merging them would mean importing `langchain_anthropic`
+and `langchain_google_genai` any time anything needed a timeout value.
+
 Exact model IDs live in `src/config.py`. The provider is switchable via
 `LLM_PROVIDER`, so the same graph runs on Gemini during development.
 
@@ -63,6 +71,14 @@ graph TD
     E --> G
     H --> G
 ```
+
+**Two independent paths to a human.** `rest` is escalated on type alone, without
+consulting the confidence score — a pricing question is not something an agent
+should attempt no matter how certain the classification. The threshold is the
+second, separate gate: it catches messages the router *did* place in an
+actionable category but could not extract enough information from. Both edges
+lead to the same node, but they answer different questions — "should an agent
+handle this at all" and "is there enough here to act on".
 
 ## State schema
 
@@ -101,7 +117,8 @@ Full methodology and numbers live in the [README](README.md); raw output in
 
 | Metric | Result |
 |---|---|
-| Router accuracy | 24/25 = 96% (avg confidence 0.93) |
-| Escalation on ambiguous input | 7/8 below the 0.6 threshold |
-| Retrieval Hit@3 / Hit@5 | 80% / 90%, average rank 2.22 |
+| Router accuracy | 25/25 = 100% |
+| Escalation correctness | 1.00 after recalibrating the confidence definition |
+| Retrieval | hit rate 0.83, MRR 0.53 (12 questions, `crocoblock-retrieval`) |
 | Latency: escalation → docs → code → bug | 1.2s → 11.8s → 22.9s → 29.6s |
+
