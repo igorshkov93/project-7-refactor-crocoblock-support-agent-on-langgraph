@@ -1,65 +1,212 @@
-"""Two-stage retrieval: vector search followed by Cohere reranking."""
-import os
+"""Two-stage retrieval: dense vector search followed by Cohere reranking.
+
+Each stage talks to a different service and fails differently, so each is
+wrapped separately: an embedding failure, a vector-store failure and a rerank
+failure are distinct exceptions carrying the service name. Clients are built
+lazily on first use — constructing them at import time turned a missing API key
+into an import error pointing at the wrong place.
+
+Each stage is also traced separately. Pinecone and Cohere are called through
+their own SDKs, which LangSmith does not instrument automatically, so without
+these decorators the retrieval stages are invisible in a trace and show up only
+as unexplained time inside the docs_qa node.
+"""
+
+from __future__ import annotations
+
+from functools import lru_cache
+from typing import Any
 
 import cohere
-from dotenv import load_dotenv
+from langsmith import traceable
 from pinecone import Pinecone
 
-from src.rag.index_chunks import EMBED_MODEL, INDEX_NAME, NAMESPACE
+from src.exceptions import (
+    ConfigurationError,
+    EmbeddingError,
+    RerankError,
+    VectorStoreError,
+)
+from src.logging_config import get_logger
+from src.retry import with_retry
+from src.settings import settings
 
-load_dotenv()
-
-RERANK_MODEL = "rerank-v3.5"
-CANDIDATES = 20
-TOP_K = 5
-
-_pc = Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
-_index = _pc.Index(INDEX_NAME)
-_co = cohere.ClientV2(api_key=os.getenv("COHERE_API_KEY"))
+logger = get_logger(__name__)
 
 
-def search(query: str, top_k: int = TOP_K, candidates: int = CANDIDATES) -> list[dict]:
+def _redact_embedding(inputs: dict[str, Any]) -> dict[str, Any]:
+    """Keep a 1536-float vector out of the trace, recording its shape instead."""
+    embedding = inputs.get("embedding") or []
+    return {
+        "embedding_dim": len(embedding),
+        "candidates": inputs.get("candidates"),
+    }
+
+
+@lru_cache(maxsize=1)
+def _cohere_client() -> cohere.ClientV2:
+    """Build the Cohere client once, with a request timeout applied."""
+    if settings.cohere_api_key is None:
+        raise ConfigurationError("COHERE_API_KEY is not set in .env")
+    return cohere.ClientV2(
+        api_key=settings.cohere_api_key.get_secret_value(),
+        timeout=settings.cohere_timeout_seconds,
+    )
+
+
+@lru_cache(maxsize=1)
+def _pinecone_index() -> Any:
+    """Build the Pinecone index handle once.
+
+    Returns ``Any``: the concrete class lives in ``pinecone.db_data.index``,
+    which the SDK does not export publicly and has already moved between
+    versions. The narrow surface we use is typed in :func:`_vector_search`.
+    """
+    if settings.pinecone_api_key is None:
+        raise ConfigurationError("PINECONE_API_KEY is not set in .env")
+    client = Pinecone(api_key=settings.pinecone_api_key.get_secret_value())
+    return client.Index(settings.pinecone_index)
+
+
+@traceable(run_type="embedding", name="cohere_embed_query")
+@with_retry()
+def _embed_query(query: str) -> list[float]:
+    """Embed the query with Cohere.
+
+    Raises:
+        EmbeddingError: If the call fails or returns no usable vector.
+    """
+    try:
+        response = _cohere_client().embed(
+            texts=[query],
+            model=settings.embed_model,
+            input_type="search_query",
+            embedding_types=["float"],
+        )
+    except Exception as error:
+        raise EmbeddingError(f"Failed to embed the query: {error}") from error
+
+    vectors = response.embeddings.float_
+    if not vectors:
+        raise EmbeddingError("Cohere returned no embeddings for the query")
+    return list(vectors[0])
+
+
+@traceable(
+    run_type="retriever",
+    name="pinecone_vector_search",
+    process_inputs=_redact_embedding,
+)
+@with_retry()
+def _vector_search(embedding: list[float], candidates: int) -> list[dict[str, Any]]:
+    """Run dense search against Pinecone.
+
+    Raises:
+        VectorStoreError: If the query fails or the payload lacks matches.
+    """
+    try:
+        response = _pinecone_index().query(
+            vector=embedding,
+            top_k=candidates,
+            namespace=settings.pinecone_namespace,
+            include_metadata=True,
+            _request_timeout=settings.pinecone_timeout_seconds,
+        )
+    except Exception as error:
+        raise VectorStoreError(f"Pinecone query failed: {error}") from error
+
+    matches = response.get("matches")
+    if matches is None:
+        raise VectorStoreError("Pinecone response contains no 'matches' field")
+    return list(matches)
+
+
+@traceable(run_type="retriever", name="cohere_rerank")
+@with_retry()
+def _rerank(query: str, documents: list[str], top_n: int) -> list[tuple[int, float]]:
+    """Reorder candidates with Cohere rerank.
+
+    Returns:
+        Pairs of ``(index into documents, relevance score)``, best first.
+
+    Raises:
+        RerankError: If the call fails.
+    """
+    try:
+        response = _cohere_client().rerank(
+            query=query,
+            documents=documents,
+            model=settings.rerank_model,
+            top_n=top_n,
+        )
+    except Exception as error:
+        raise RerankError(f"Cohere rerank failed: {error}") from error
+
+    return [(item.index, item.relevance_score) for item in response.results]
+
+
+@traceable(run_type="retriever", name="two_stage_retrieval")
+def search(
+    query: str,
+    top_k: int | None = None,
+    candidates: int | None = None,
+) -> list[dict[str, Any]]:
     """Retrieve documentation chunks relevant to a query.
 
     Stage 1: dense vector search returns a broad candidate set.
     Stage 2: the reranker scores query-document pairs and keeps the best.
-    """
-    embedding = _co.embed(
-        texts=[query],
-        model=EMBED_MODEL,
-        input_type="search_query",
-        embedding_types=["float"],
-    ).embeddings.float[0]
 
-    matches = _index.query(
-        vector=embedding,
-        top_k=candidates,
-        namespace=NAMESPACE,
-        include_metadata=True,
-    )["matches"]
+    Args:
+        query: The user's question.
+        top_k: How many chunks to return. Defaults to ``RETRIEVAL_TOP_N``.
+        candidates: How many chunks to retrieve before reranking. Defaults to
+            ``RETRIEVAL_CANDIDATES``.
+
+    Returns:
+        Chunks ordered by relevance, each with its text, title, source URL and
+        both scores. Empty if the index has nothing for this query.
+
+    Raises:
+        EmbeddingError: If the query could not be embedded.
+        VectorStoreError: If the vector search failed.
+        RerankError: If reranking failed.
+    """
+    top_k = settings.retrieval_top_n if top_k is None else top_k
+    candidates = settings.retrieval_candidates if candidates is None else candidates
+
+    embedding = _embed_query(query)
+    matches = _vector_search(embedding, candidates)
 
     if not matches:
+        logger.info(
+            "Vector search returned no candidates",
+            extra={"namespace": settings.pinecone_namespace},
+        )
         return []
 
-    documents = [m["metadata"]["text"] for m in matches]
-    reranked = _co.rerank(
-        query=query,
-        documents=documents,
-        model=RERANK_MODEL,
-        top_n=top_k,
-    )
+    documents = [match["metadata"]["text"] for match in matches]
+    ranked = _rerank(query, documents, top_k)
 
-    results = []
-    for item in reranked.results:
-        match = matches[item.index]
+    results: list[dict[str, Any]] = []
+    for position, score in ranked:
+        match = matches[position]
+        metadata = match["metadata"]
         results.append(
             {
-                "text": match["metadata"]["text"],
-                "title": match["metadata"]["title"],
-                "url": match["metadata"]["url"],
+                "text": metadata["text"],
+                "title": metadata["title"],
+                "url": metadata["url"],
                 "vector_score": match["score"],
-                "rerank_score": item.relevance_score,
+                "rerank_score": score,
             }
         )
 
+    logger.info(
+        "Retrieval complete",
+        extra={
+            "candidates": len(matches),
+            "returned": len(results),
+            "top_score": results[0]["rerank_score"] if results else None,
+        },
+    )
     return results

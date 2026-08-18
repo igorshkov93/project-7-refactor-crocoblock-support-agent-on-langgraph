@@ -18,7 +18,7 @@ def link_list_ratio(text: str) -> float:
     return len(title_like) / len(lines)
 
 
-def main():
+def main() -> None:
     chunks = json.loads(CHUNKS.read_text(encoding="utf-8"))
 
     suspicious = [c for c in chunks if link_list_ratio(c["text"]) > 0.8]

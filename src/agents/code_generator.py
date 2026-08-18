@@ -1,9 +1,15 @@
-
 """Agent #4: writes PHP and CSS snippets for JetFormBuilder."""
+
 from pathlib import Path
+from typing import Any
 
 from src.config import get_llm
+from src.exceptions import ConfigurationError
+from src.llm_call import invoke_text
+from src.logging_config import get_logger
 from src.state import SupportState
+
+logger = get_logger(__name__)
 
 KNOWLEDGE = Path(__file__).parent / "knowledge" / "jfb_hooks.md"
 
@@ -37,26 +43,62 @@ Write for someone who may not know PHP. Explain what the code does, do not \
 just hand it over. Keep the explanation shorter than the code."""
 
 
-def extract_text(content) -> str:
-    """Get plain text from a response that may contain thinking blocks."""
-    if isinstance(content, str):
-        return content
-    parts = [
-        block.get("text", "")
-        for block in content
-        if isinstance(block, dict) and block.get("type") == "text"
-    ]
-    return "\n".join(p for p in parts if p).strip()
+def load_hook_reference() -> str:
+    """Read the curated JetFormBuilder hook reference.
+
+    The reference ships with the repository and is the only source of hooks the
+    agent may treat as verified, so a missing or empty file is a configuration
+    fault rather than a runtime hiccup — without it the agent would invent hook
+    signatures, which is the failure mode this prompt exists to prevent.
+
+    Raises:
+        ConfigurationError: If the reference is missing, unreadable or empty.
+    """
+    try:
+        hooks = KNOWLEDGE.read_text(encoding="utf-8")
+    except FileNotFoundError as error:
+        raise ConfigurationError(
+            f"Hook reference not found at {KNOWLEDGE}"
+        ) from error
+    except OSError as error:
+        raise ConfigurationError(
+            f"Hook reference at {KNOWLEDGE} could not be read: {error}"
+        ) from error
+
+    if not hooks.strip():
+        raise ConfigurationError(f"Hook reference at {KNOWLEDGE} is empty")
+    return hooks
 
 
-def generate(request: str, env_info: dict | None = None) -> str:
-    """Write a snippet for the requested customisation."""
-    hooks = KNOWLEDGE.read_text(encoding="utf-8")
-    messages = [
+def generate(request: str, env_info: dict[str, Any] | None = None) -> str:
+    """Write a snippet for the requested customisation.
+
+    Args:
+        request: What the customer wants the snippet to do.
+        env_info: Site environment from the bug investigator, when available.
+
+    Returns:
+        The snippet with an explanation, as plain text.
+
+    Raises:
+        ConfigurationError: If the curated hook reference is unavailable.
+        LLMError: If the provider call failed after retries.
+        LLMResponseError: If the model returned an empty answer.
+    """
+    hooks = load_hook_reference()
+
+    messages: list[dict[str, Any]] = [
         {"role": "system", "content": SYSTEM_PROMPT.format(hooks=hooks)},
     ]
 
     if env_info:
+        logger.info(
+            "Using site environment for code generation",
+            extra={
+                "wp_version": env_info.get("wp_version"),
+                "php_version": env_info.get("php_version"),
+            },
+        )
         messages.append(
             {
                 "role": "system",
@@ -67,18 +109,21 @@ def generate(request: str, env_info: dict | None = None) -> str:
                 ),
             }
         )
+    else:
+        logger.debug("No environment info available, writing version-agnostic code")
 
     messages.append({"role": "user", "content": request})
 
-    response = get_llm("smart").invoke(messages)
-    return extract_text(response.content)
+    logger.info("Generating snippet", extra={"hook_reference_chars": len(hooks)})
+    snippet = invoke_text(get_llm("smart"), messages)
+    logger.info("Snippet generated", extra={"snippet_chars": len(snippet)})
+    return snippet
 
 
-def code_generator_node(state: SupportState) -> dict:
+def code_generator_node(state: SupportState) -> dict[str, object]:
     """Graph node: write a snippet for the customer's request."""
-    request = state["messages"][-1].content
+    request = str(state["messages"][-1].content)
     snippet = generate(request, state.get("env_info"))
-
     return {
         "final_answer": snippet,
         "handled_by": "code_generator",

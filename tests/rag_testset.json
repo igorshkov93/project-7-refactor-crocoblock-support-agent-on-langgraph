@@ -1,12 +1,50 @@
 [
-  {"question": "How do I set up conditional logic for a field?", "expected_source": "conditional"},
-  {"question": "How to send form data to a webhook?", "expected_source": "webhook"},
-  {"question": "Where can I find submitted form records?", "expected_source": "records"},
-  {"question": "How does the repeater field work?", "expected_source": "repeater"},
-  {"question": "How do I redirect the user after a successful submit?", "expected_source": "redirect"},
-  {"question": "How to add a file upload field to my form?", "expected_source": "media-field"},
-  {"question": "How do I connect reCAPTCHA to my form?", "expected_source": "captcha"},
-  {"question": "How to prefill a field with a value from the URL?", "expected_source": "preset"},
-  {"question": "How do I send a confirmation email after submit?", "expected_source": "send-email"},
-  {"question": "How to create a multi-step form?", "expected_source": "multi-step"}
+  {
+    "question": "How do I set up conditional logic for a field?",
+    "expected_source": "conditional"
+  },
+  {
+    "question": "How to send form data to a webhook?",
+    "expected_source": "webhook"
+  },
+  {
+    "question": "Where can I find submitted form records?",
+    "expected_source": "records"
+  },
+  {
+    "question": "How does the repeater field work?",
+    "expected_source": "repeater"
+  },
+  {
+    "question": "How do I redirect the user after a successful submit?",
+    "expected_source": "redirect"
+  },
+  {
+    "question": "How to add a file upload field to my form?",
+    "expected_source": "media-field"
+  },
+  {
+    "question": "How do I connect reCAPTCHA to my form?",
+    "expected_source": "captcha"
+  },
+  {
+    "question": "How to prefill a field with a value from the URL?",
+    "expected_source": "preset"
+  },
+  {
+    "question": "How do I send a confirmation email after submit?",
+    "expected_source": "send-email"
+  },
+  {
+    "question": "How to create a multi-step form?",
+    "expected_source": "multi-step"
+  },
+  {
+    "question": "How do I add a hidden field that stores the current user ID?",
+    "expected_source": "hidden-field"
+  },
+  {
+    "question": "How can I restrict form access to specific user roles?",
+    "expected_source": "user"
+  }
 ]

@@ -7,7 +7,7 @@ from google import genai
 load_dotenv()
 
 
-def main():
+def main() -> None:
     client = genai.Client(api_key=os.getenv("GOOGLE_API_KEY"))
     for model in client.models.list():
         actions = getattr(model, "supported_actions", None) or []

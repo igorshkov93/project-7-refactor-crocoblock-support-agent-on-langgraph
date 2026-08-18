@@ -11,6 +11,30 @@ single environment variable.
 
 **Languages:** English · [Русский](README.ru.md) · [Українська](README.ua.md)
 
+[![CI](https://github.com/igorshkov93/project-7-refactor-crocoblock-support-agent-on-langgraph/actions/workflows/ci.yml/badge.svg)](https://github.com/igorshkov93/project-7-refactor-crocoblock-support-agent-on-langgraph/actions/workflows/ci.yml)
+
+---
+
+## What this repository is
+
+A working prototype turned into something that can be maintained. The agents,
+the graph and the retrieval pipeline were already there; what was missing was
+everything that makes a system survivable — validated configuration, a typed
+codebase, structured logs, a retry policy, traces, and a test suite that runs
+without touching a paid API.
+
+| | Before | After |
+|---|---|---|
+| `ruff` violations | 126 | **0** |
+| `mypy --strict` errors | 33 | **0** |
+| `print()` in library code | 49 | **0** |
+| Places reading `os.environ` | 11 | **3** |
+| Automated tests | 0 (could not run) | **129, 1.4 s, no network** |
+| CI | none | ruff + mypy + pytest on every push |
+
+Full log of what was changed and why, including the defects found along the
+way: [`docs/REFACTORING.md`](docs/REFACTORING.md).
+
 ## Demo
 
 **[▶ Watch the walkthrough (Loom)](https://www.loom.com/share/12bc143caf2d446288fef600a9506836)** — the four agents on a live
@@ -86,34 +110,69 @@ cost the customer an afternoon.
 Measured by `tests/metrics.py`, raw output in [`metrics/results.json`](metrics/results.json).
 Provider: Anthropic, `claude-haiku-4-5` for routing, `claude-sonnet-5` for the rest.
 
-**Routing** — 25 labelled requests, phrased the way customers actually write:
+**Routing** — 25 labelled requests, phrased the way customers actually write.
+Run as a LangSmith experiment against the `crocoblock-routing` dataset:
 
-| | Accuracy |
-|---|---|
-| Overall | **24/25 = 96%** (avg confidence 0.93) |
-| `bug` | 7/7 |
-| `how_to` | 6/6 |
-| `rest` | 6/6 |
-| `code` | 5/6 |
+| | Before | After |
+|---|---|---|
+| Routing accuracy | 24/25 = 96% | **25/25 = 100%** |
+| Escalation correctness | 0.93 | **1.00** |
 
-The one miss is a `code` request classified as `how_to` — an honest boundary
-case, since the router is explicitly instructed to prefer `how_to` when a task
-can be solved through built-in settings.
+The earlier miss was a `code` request read as `how_to` — a boundary case, since
+the router is told to prefer `how_to` when built-in settings would do. What
+fixed it was not a bigger model but a rewritten definition of confidence, and
+that story is worth telling in full below.
 
-**Escalation** — 8 deliberately ambiguous messages: **7/8 fell below the
-threshold** and were escalated. The failure is instructive: *"форма не
-работает"* scored 0.75 and was confidently classified as a bug despite
-containing no diagnostic information at all. The test set is otherwise in
-English, so this is a reminder that confidence calibration is language-
-dependent.
+**Escalation** — the interesting one. In the previous version, *"форма не
+работает"* scored 0.75 and was confidently routed to the bug investigator,
+despite containing no diagnostic information whatsoever. The obvious diagnosis
+was that confidence calibration breaks on non-English input.
 
-**Retrieval** — 10 questions with a known source page:
+That diagnosis was wrong. Two things were actually happening:
+
+*The prompt anchored the model.* It named the 0.6 threshold explicitly, and the
+model kept landing on 0.60 — precisely the value the graph compares with `<`,
+which passes. Removing the number and replacing it with two bands, 0.15–0.35
+and 0.75–0.95, pushed scores to the ends of the range where they belong.
+
+*Confidence was measuring the wrong thing.* The model was scoring how sure it
+was of the category, not whether the message contained enough to act on. "The
+form is broken" is unambiguously a bug report — high confidence, correctly. It
+is also unactionable. Redefining confidence as sufficiency of information, with
+an explicit note that naming a subject is not diagnostic information, is what
+moved escalation correctness from 0.93 to 1.00.
+
+Language was never the variable. The prompt now says so outright: a detailed
+report in any language scores high, a vague one in English scores low.
+
+**Calibration turned out to be a property of the model, not the prompt.** The
+same prompt on the same dataset scores 0.47 on Gemini 2.5 Flash and 0.93 on
+Claude Haiku 4.5. A prompt fix cannot close that gap.
+
+**Retrieval** — 12 questions with a known source page, run against the
+`crocoblock-retrieval` dataset:
 
 | Metric | Result |
 |---|---|
-| Hit@3 | 80% |
-| Hit@5 | 90% |
-| Average rank when found | 2.22 |
+| Hit rate | 0.83 |
+| Mean reciprocal rank | 0.53 |
+
+The gap between those two numbers is the story. The correct page is usually
+retrieved, but often not first — and tracing one case showed reranking is
+sometimes the reason.
+
+For a question about prefilling a hidden field with the current user ID,
+Pinecone returns the right page in second position with four of its chunks in
+the top 20. Cohere's reranker removes all four and promotes pages about user
+roles instead. The cause is upstream of the reranker: chunking splits the
+documentation mid-list, so the chunk holding the literal answer opens halfway
+through an enumeration and never names the thing it describes. The reranker
+scores it as unrelated, which — reading only that chunk — it is.
+
+The obvious fix, prepending the page title to each chunk's text, was
+implemented, measured, and rejected: it did not improve the ranking. The real
+fix is a re-indexing strategy that respects list boundaries, which is outside
+what a refactor should touch. Recorded as a known limit rather than patched.
 
 **Latency** — end-to-end, single request, no caching:
 
@@ -148,14 +207,14 @@ Requires Python 3.12 and a WordPress site you control (Local by Flywheel works
 well) with JetFormBuilder installed.
 
 ```bash
-git clone https://github.com/igorshkov93/project-6-crocoblock-ai-support-agent-v2
-cd project-6-crocoblock-ai-support-agent-v2
+git clone https://github.com/igorshkov93/project-7-refactor-crocoblock-support-agent-on-langgraph
+cd project-7-refactor-crocoblock-support-agent-on-langgraph
 
 python -m venv .venv
 .venv\Scripts\activate        # Windows
 # source .venv/bin/activate   # macOS / Linux
 
-pip install -r requirements.txt
+pip install -r requirements.txt          # add -dev for ruff, mypy and pytest
 cp .env.example .env          # then fill in your keys
 ```
 
@@ -185,6 +244,31 @@ Reproduce the numbers above:
 python -m tests.metrics
 ```
 
+## Tests
+
+```bash
+pip install -r requirements-dev.txt
+pytest
+```
+
+129 tests, about 1.4 seconds, no network and no API keys — stub credentials are
+injected before the first import and every outbound call is replaced. The same
+three commands run in CI on every push: `ruff check .`, `mypy src app.py`,
+`pytest`.
+
+Running without keys is the point, not a convenience. A green run proves the
+suite is genuinely isolated: a real call would fail on a missing key rather than
+pass quietly on a machine that happens to have `.env` in place. The pipeline was
+also verified in the other direction — a branch with one deliberately failing
+assertion was pushed to confirm the run goes red.
+
+Two kinds of test live under `tests/`, and they are not the same thing:
+
+- `tests/unit/` — automated, isolated, collected by pytest.
+- Everything directly under `tests/` — manual probes against live Pinecone,
+  Cohere and WordPress, plus the LangSmith dataset and evaluator scripts. Run by
+  hand when a real service needs checking. `testpaths` keeps pytest out of them.
+
 ## Repository layout
 
 ```
@@ -213,7 +297,14 @@ Design decisions and the full state schema live in
 - `InMemorySaver` keeps conversation state in process memory: restarting the
   app clears every thread. Swapping in a persistent checkpointer is a
   configuration change, not a rewrite.
-- Confidence calibration is weaker for non-English messages, as the escalation
-  results show.
+- Confidence calibration is a property of the model, not of the prompt. The
+  same prompt scores 0.47 on Gemini 2.5 Flash and 0.93 on Claude Haiku 4.5, so
+  the free-tier development provider cannot be trusted for routing decisions.
+- Reranking occasionally demotes the correct page, because chunking splits the
+  documentation mid-list. Fixing it means re-indexing, not re-ranking.
+- The retry policy backs off on a fixed exponential schedule and ignores the
+  `retryDelay` the provider returns. It only matters under batch evaluation
+  runs, where the providers ask for 20–40 seconds and the policy waits 1–3.
+  Reading the value back would mean parsing two different response formats.
 - The Bug Investigator reads the site but never writes to it. Every MCP tool is
   read-only by design.
